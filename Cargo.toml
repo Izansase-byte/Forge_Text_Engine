@@ -1,6 +1,9 @@
 [package]
-name = "untitled"
+name = "forge_text_engine"
 version = "0.1.0"
 edition = "2024"
+
+[workspace]
+members = ["editor"]
 
 [dependencies]

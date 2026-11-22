@@ -3,5 +3,12 @@
 version = 4
 
 [[package]]
-name = "untitled"
+name = "editor"
+version = "0.1.0"
+dependencies = [
+ "forge_text_engine",
+]
+
+[[package]]
+name = "forge_text_engine"
 version = "0.1.0"
