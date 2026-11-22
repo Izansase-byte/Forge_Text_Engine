@@ -87,6 +87,7 @@ version = "0.1.0"
 dependencies = [
  "crossterm",
  "forge_text_engine",
+ "log",
 ]
 
 [[package]]

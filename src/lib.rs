@@ -1,3 +1,4 @@
+#[derive(Clone,Copy)]
 pub struct Position {pub line: usize, pub column: usize}
 pub struct TextBuffer {lines: Vec<Vec<char>>, cursor: Position}
 
@@ -14,6 +15,10 @@ impl TextBuffer {
     fn delete_char(&mut self) {
         let line = &mut self.lines[self.cursor.line];
         line.remove(self.cursor.column);
+    }
+
+    pub fn position(&self) -> Position {
+        self.cursor
     }
 
     pub fn backspace(&mut self) {
