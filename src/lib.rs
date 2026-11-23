@@ -12,9 +12,11 @@ impl TextBuffer {
         self.cursor.column += 1;
     }
 
-    fn delete_char(&mut self) {
+    pub fn delete_char(&mut self) {
         let line = &mut self.lines[self.cursor.line];
-        line.remove(self.cursor.column);
+        if self.cursor.column > line.len() - 1 {
+            line.remove(self.cursor.column);
+        }
     }
 
     pub fn position(&self) -> Position {
