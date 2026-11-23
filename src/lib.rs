@@ -96,4 +96,20 @@ impl TextBuffer {
             }
         }
     }
+    pub fn change_position(&mut self, line: usize, column: usize) {
+        self.cursor.line = line;
+        self.cursor.column = column;
+    }
+    pub fn find_first(&self, query: &str) -> Option<Position> {
+        if query.is_empty() {
+            return None;
+        }
+        for(row,line) in self.lines.iter().enumerate() {
+            let line_text = line.iter().collect::<String>();
+            if let Some(byte_index) = line_text.find(query) {
+                println!("Found on the line {row}, byte {byte_index} in the text.");
+            }
+        }
+        None
+    }
 }

@@ -17,22 +17,24 @@ fn main() {
         return}
     };
 
-    let x = fs::read_to_string(&file).unwrap();;
+    let x = fs::read_to_string(&file).unwrap();
     let mut buffer = TextBuffer::from_text(&x);
     terminal::enable_raw_mode().unwrap();
     loop {
-        let cursor = buffer.position();
+        let mut cursor = buffer.position();
+    let status = format!("\r\nFile: {} | Ln {}, Col {}",file,buffer.position().line, buffer.position().column);
         match crossterm::execute! (
             std::io::stdout(),
             Clear(ClearType::All),
             MoveTo(0,0),
             Print(buffer.to_text().replace("\n","\r\n")),
             Print(&dirty_text),
+            Print(status),
             MoveTo(cursor.column as u16,cursor.line as u16)) {
                 Ok(()) => (),
                 Err(error) => {
                 eprintln!("Screen error | Err: {}", error);
-                break
+                    break
             }
         };
 
@@ -76,6 +78,9 @@ fn main() {
             }
             if tecla.code == KeyCode::Right {
                 buffer.move_right()
+            }
+            if tecla.code == KeyCode::Home {
+                buffer.change_position(0,0)
             }
             if tecla.modifiers == KeyModifiers::CONTROL {
                 if tecla.code == KeyCode::Char('s') {
