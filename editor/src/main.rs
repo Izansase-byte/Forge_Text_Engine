@@ -1,132 +1,196 @@
-use std::{env, fs};
-use forge_text_engine::{Position, TextBuffer};
-use crossterm::{execute, terminal};
+use std::{env, fs, io};
+use forge_text_engine::TextBuffer;
 use crossterm::cursor::MoveTo;
-use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
+use crossterm::event::{self, Event, KeyCode, KeyModifiers};
 use crossterm::style::Print;
-use crossterm::terminal::{Clear, ClearType};
-use log::error;
+use crossterm::terminal::{self, Clear, ClearType};
 
 fn main() {
-    let mut searching = false;
-    let mut dirty_text = String::new();
-    let mut dirty = false;
-    let status = "";
-    let mut query = String::new();
-
     let file = match env::args().nth(1) {
-        Some(file) => (file),
-        None => {eprintln!("No file route");
-        return}
+        Some(file) => file,
+        None => {
+            eprintln!("No file path provided");
+            return;
+        }
     };
 
-    let x = fs::read_to_string(&file).unwrap();
-    let mut buffer = TextBuffer::from_text(&x);
-    terminal::enable_raw_mode().unwrap();
-    loop {
-        let mut cursor = buffer.position();
+    let contents = match fs::read_to_string(&file) {
+        Ok(contents) => contents,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => String::new(),
+        Err(error) => {
+            eprintln!("Could not open {file}: {error}");
+            return;
+        }
+    };
+
+    let mut buffer = TextBuffer::from_text(&contents);
+    let mut searching = false;
+    let mut query = String::new();
+    let mut dirty = false;
+    let mut message = String::new();
+
+    if let Err(error) = terminal::enable_raw_mode() {
+        eprintln!("Could not enable terminal raw mode: {error}");
+        return;
+    }
+
+    'editor: loop {
+        let text = buffer.to_text();
         let status = if searching {
-            format!("\r\nSearch: {query} ")
+            format!("Search: {query}  (Enter: jump, Esc: cancel)")
         } else {
-            format!("\r\nFile: {} | Ln {}, Col {}",file,buffer.position().line, buffer.position().column)
+            let position = buffer.position();
+            format!(
+                "File: {file} | Ln {}, Col {} | Ctrl+F: search | Ctrl+S: save | Esc: quit",
+                position.line + 1,
+                position.column + 1
+            )
         };
-        match crossterm::execute! (
-            std::io::stdout(),
+
+        let mut stdout = io::stdout();
+        let draw_result = crossterm::execute!(
+            stdout,
             Clear(ClearType::All),
-            MoveTo(0,0),
-            Print(buffer.to_text().replace("\n","\r\n")),
-            Print(&dirty_text),
-            Print(status),
-            MoveTo(cursor.column as u16,cursor.line as u16)) {
-                Ok(()) => (),
-                Err(error) => {
-                eprintln!("Screen error | Err: {}", error);
-                    break
-            }
+            MoveTo(0, 0),
+            Print(text.replace('\n', "\r\n")),
+            Print("\r\n"),
+            Print(&status),
+            Print("\r\n"),
+            Print(&message)
+        );
+
+        if let Err(error) = draw_result {
+            message = format!("Screen error: {error}");
+            break;
+        }
+
+        message.clear();
+        let cursor = if searching {
+            let row = text.chars().filter(|character| *character == '\n').count() + 1;
+            (8 + query.chars().count(), row)
+        } else {
+            let position = buffer.position();
+            (position.column, position.line)
         };
 
-        dirty_text = "".to_string();
+        if let Err(error) = crossterm::execute!(
+            io::stdout(),
+            MoveTo(cursor.0.min(u16::MAX as usize) as u16, cursor.1.min(u16::MAX as usize) as u16)
+        ) {
+            message = format!("Cursor error: {error}");
+            break;
+        }
 
-        let event = match crossterm::event::read() {
+        let event = match event::read() {
             Ok(event) => event,
             Err(error) => {
-                eprintln!("Error reading the keyboard | Err: {}", error);
-                break
+                message = format!("Keyboard error: {error}");
+                break;
             }
         };
-        if let Event::Key(tecla) = event {
-            if tecla.code == KeyCode::Esc {
-                if dirty == true {
-                    dirty_text = ("Changes without save | Press ctrl + s to save".to_string());
-                    continue;
+        let Event::Key(key) = event else {
+            continue;
+        };
+
+        // Search mode consumes its own keys so Enter, Backspace, and typed
+        // characters cannot accidentally edit the document.
+        if searching {
+            match key.code {
+                KeyCode::Esc => {
+                    searching = false;
+                    query.clear();
                 }
-                break
-            }
-            if tecla.code == KeyCode::Enter {
-                dirty = true;
-                buffer.insert_newline()
-            }
-            if tecla.code == KeyCode::Backspace {
-                dirty = true;
-                buffer.backspace()
-            }
-            //The Delete function doesn't work, will be reworked later
-            if tecla.code == KeyCode::Delete {
-                buffer.delete_char()
-            }
-            if tecla.code == KeyCode::Down {
-                buffer.move_down()
-            }
-            if tecla.code == KeyCode::Up {
-                buffer.move_up()
-            }
-            if tecla.code == KeyCode::Left {
-                buffer.move_left()
-            }
-            if tecla.code == KeyCode::Right {
-                buffer.move_right()
-            }
-            if tecla.code == KeyCode::Home {
-                buffer.change_position(0,0)
-            }
-            if tecla.modifiers == KeyModifiers::CONTROL {
-                if tecla.code == KeyCode::Char('s') {
-                    match fs::write(&file, buffer.to_text()) {
-                        Ok(()) => dirty = false,
-                        Err(error) => dirty_text = format!("Error saving | Err: {}", error)
-                    };
-                    continue;
+                KeyCode::Enter => {
+                    match buffer.find_first(&query) {
+                        Some(position) => {
+                            buffer.change_position(position.line, position.column);
+                        }
+                        None => message = format!("No matches for \"{query}\""),
+                    }
+                    searching = false;
                 }
-                if tecla.code == KeyCode::Char('f') {
+                KeyCode::Backspace => {
+                    query.pop();
+                }
+                KeyCode::Char(character)
+                    if !key.modifiers.contains(KeyModifiers::CONTROL)
+                        && !key.modifiers.contains(KeyModifiers::ALT) =>
+                {
+                    query.push(character);
+                }
+                _ => {}
+            }
+            continue;
+        }
+
+        if key.modifiers.contains(KeyModifiers::CONTROL) {
+            match key.code {
+                KeyCode::Char('f') | KeyCode::Char('F') => {
                     query.clear();
                     searching = true;
-                    if searching {
-                        match tecla.code {
-                            KeyCode::Esc => searching = false,
-                            KeyCode::Enter => {
-                                match buffer.find_first(&query) {
-                                    Some(pos) => {buffer.change_position(pos.line,pos.column)},
-                                    None => dirty_text = "No matches".to_string()
-                                }
-                            searching = false;
-                            }
-                        KeyCode::Backspace => {
-                            query.pop();
+                    continue;
+                }
+                KeyCode::Char('s') | KeyCode::Char('S') => {
+                    match fs::write(&file, buffer.to_text()) {
+                        Ok(()) => {
+                            dirty = false;
+                            message = "Saved".to_string();
                         }
-                        KeyCode::Char(c) if !tecla.modifiers.contains(KeyModifiers::CONTROL) => {
-                            query.push(c);
-                        }
-                        _ => {}
+                        Err(error) => message = format!("Save failed: {error}"),
                     }
                     continue;
                 }
+                _ => continue,
             }
-            if let KeyCode::Char(c) = tecla.code {
-                buffer.insert_char(c);
+        }
+
+        match key.code {
+            KeyCode::Esc => {
+                if dirty {
+                    message = "Unsaved changes. Press Ctrl+S to save, then Esc to quit.".to_string();
+                } else {
+                    break 'editor;
+                }
+            }
+            KeyCode::Enter => {
+                buffer.insert_newline();
                 dirty = true;
             }
-        };
-    }}
-    terminal::disable_raw_mode().unwrap();
-    eprintln!("\r\n")
+            KeyCode::Backspace => {
+                buffer.backspace();
+                dirty = true;
+            }
+            KeyCode::Delete => {
+                buffer.delete_char();
+                dirty = true;
+            }
+            KeyCode::Left => buffer.move_left(),
+            KeyCode::Right => buffer.move_right(),
+            KeyCode::Up => buffer.move_up(),
+            KeyCode::Down => buffer.move_down(),
+            KeyCode::Home => {
+                let position = buffer.position();
+                buffer.change_position(position.line, 0);
+            }
+            KeyCode::End => {
+                let position = buffer.position();
+                buffer.change_position(position.line, usize::MAX);
+            }
+            KeyCode::Char(character)
+                if !key.modifiers.contains(KeyModifiers::ALT)
+                    && !key.modifiers.contains(KeyModifiers::SUPER) =>
+            {
+                buffer.insert_char(character);
+                dirty = true;
+            }
+            _ => {}
+        }
+    }
+
+    if let Err(error) = terminal::disable_raw_mode() {
+        eprintln!("Could not restore terminal mode: {error}");
+    }
+    if !message.is_empty() {
+        eprintln!("{message}");
+    }
 }
