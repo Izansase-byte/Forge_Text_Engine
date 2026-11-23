@@ -1,0 +1,63 @@
+name: Build Forge release
+on:
+  workflow_dispatch:
+  push:
+    branches: [master]
+    paths: [.github/workflows/release-build.yml]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {runner: ubuntu-22.04, platform: linux-x86_64}
+          - {runner: macos-15, platform: macos-arm64}
+          - {runner: macos-15-intel, platform: macos-x86_64}
+          - {runner: windows-latest, platform: windows-x86_64}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: refs/tags/0.1.0
+      - run: cargo +stable build --locked --release -p editor
+      - if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          mkdir dist
+          cp target/release/editor dist/forge
+          cp README.md dist/
+          tar -czf forge-${{ matrix.platform }}.tar.gz -C dist forge README.md
+      - if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path dist
+          Copy-Item target/release/editor.exe dist/forge.exe
+          Copy-Item README.md dist/
+          Compress-Archive -Path dist/* -DestinationPath forge-${{ matrix.platform }}.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: forge-${{ matrix.platform }}
+          path: |
+            forge-${{ matrix.platform }}.tar.gz
+            forge-${{ matrix.platform }}.zip
+          if-no-files-found: error
+  attach:
+    needs: build
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: forge-*
+          path: packages
+          merge-multiple: true
+      - name: Attach binaries to the existing release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: gh release upload 0.1.0 packages/*
