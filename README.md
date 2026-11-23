@@ -1,7 +1,7 @@
-# Desde el repositorio
+# From the REPO
 cargo run -p editor -- editor/test.txt
 
-# Desde la carpeta del paquete, si renombras el binario a forge
+# From the file folder if you rename the binary to Forge
 ./forge ejemplo.txt
 
 # Forge Text Engine
