@@ -8,8 +8,11 @@ use crossterm::terminal::{Clear, ClearType};
 use log::error;
 
 fn main() {
+    let mut searching = false;
     let mut dirty_text = String::new();
     let mut dirty = false;
+    let status = "";
+    let mut query = String::new();
 
     let file = match env::args().nth(1) {
         Some(file) => (file),
@@ -22,7 +25,11 @@ fn main() {
     terminal::enable_raw_mode().unwrap();
     loop {
         let mut cursor = buffer.position();
-    let status = format!("\r\nFile: {} | Ln {}, Col {}",file,buffer.position().line, buffer.position().column);
+        let status = if searching {
+            format!("\r\nSearch: {query} ")
+        } else {
+            format!("\r\nFile: {} | Ln {}, Col {}",file,buffer.position().line, buffer.position().column)
+        };
         match crossterm::execute! (
             std::io::stdout(),
             Clear(ClearType::All),
@@ -90,13 +97,36 @@ fn main() {
                     };
                     continue;
                 }
+                if tecla.code == KeyCode::Char('f') {
+                    query.clear();
+                    searching = true;
+                    if searching {
+                        match tecla.code {
+                            KeyCode::Esc => searching = false,
+                            KeyCode::Enter => {
+                                match buffer.find_first(&query) {
+                                    Some(pos) => {buffer.change_position(pos.line,pos.column)},
+                                    None => dirty_text = "No matches".to_string()
+                                }
+                            searching = false;
+                            }
+                        KeyCode::Backspace => {
+                            query.pop();
+                        }
+                        KeyCode::Char(c) if !tecla.modifiers.contains(KeyModifiers::CONTROL) => {
+                            query.push(c);
+                        }
+                        _ => {}
+                    }
+                    continue;
+                }
             }
             if let KeyCode::Char(c) = tecla.code {
                 buffer.insert_char(c);
                 dirty = true;
             }
         };
-    }
+    }}
     terminal::disable_raw_mode().unwrap();
     eprintln!("\r\n")
 }

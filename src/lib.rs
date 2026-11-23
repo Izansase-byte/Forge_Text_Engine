@@ -107,7 +107,8 @@ impl TextBuffer {
         for(row,line) in self.lines.iter().enumerate() {
             let line_text = line.iter().collect::<String>();
             if let Some(byte_index) = line_text.find(query) {
-                println!("Found on the line {row}, byte {byte_index} in the text.");
+                let x = line_text[0..byte_index].chars().count();
+                return Some(Position { line: row,column: x })
             }
         }
         None
