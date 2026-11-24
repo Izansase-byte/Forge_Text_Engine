@@ -1,0 +1,63 @@
+name: Rebuild Forge 0.1.0
+on:
+  push:
+    branches: [release-rebuild-0.1.0]
+permissions:
+  contents: read
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {os: ubuntu-latest, target: x86_64-unknown-linux-gnu, name: forge-linux-x86_64}
+          - {os: macos-latest, target: aarch64-apple-darwin, name: forge-macos-arm64}
+          - {os: macos-latest, target: x86_64-apple-darwin, name: forge-macos-x86_64}
+          - {os: windows-latest, target: x86_64-pc-windows-msvc, name: forge-windows-x86_64}
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 7ad576e38ee1803a0ec1839ae40c56c59dfedac0
+          persist-credentials: false
+      - run: rustup target add ${{ matrix.target }}
+      - run: cargo test --locked --workspace
+      - run: cargo build --locked --release --package editor --target ${{ matrix.target }}
+      - if: runner.os != 'Windows'
+        run: |
+          mkdir dist
+          cp target/${{ matrix.target }}/release/editor dist/forge
+          tar -czf ${{ matrix.name }}.tar.gz -C dist forge
+      - if: runner.os == 'Windows'
+        run: |
+          New-Item -ItemType Directory dist
+          Copy-Item target/${{ matrix.target }}/release/editor.exe dist/forge.exe
+          Compress-Archive -Path dist/forge.exe -DestinationPath ${{ matrix.name }}.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.name }}
+          path: ${{ matrix.name }}.*
+          if-no-files-found: error
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: forge-*
+          merge-multiple: true
+          path: dist
+      - name: Replace the four packages in release 0.1.0
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cd dist
+          for f in forge-linux-x86_64.tar.gz forge-macos-arm64.tar.gz forge-macos-x86_64.tar.gz; do
+            test -s "$f"
+            tar -tzf "$f"
+          done
+          unzip -t forge-windows-x86_64.zip
+          gh release upload 0.1.0 --repo "$GITHUB_REPOSITORY" --clobber forge-linux-x86_64.tar.gz forge-macos-arm64.tar.gz forge-macos-x86_64.tar.gz forge-windows-x86_64.zip
+          gh release view 0.1.0 --repo "$GITHUB_REPOSITORY" --json assets
