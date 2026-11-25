@@ -1,7 +1,7 @@
 # From the REPO
 cargo run -p editor -- editor/test.txt
 
-# From the file folder if you rename the binary to Forge
+# From the file folder with the Forge binary
 ./forge ejemplo.txt
 
 # Forge Text Engine
